@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3D2B1F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="給排水設備法規">
+  <link rel="apple-touch-icon" href="assets/logo.png">
+  <meta name="description" content="自來水用戶用水設備標準、下水道用戶排水設備標準、建築物給水排水設備設計技術規範 — 手機網頁版">
+  <title>給排水設備法規</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <button type="button" class="back-btn" id="backBtn" hidden aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="brand">
+        <img src="assets/logo.png" alt="" class="brand-logo" width="36" height="36">
+        <div class="brand-text">
+          <h1 class="brand-title" id="pageTitle">給排水設備法規</h1>
+          <p class="brand-sub" id="pageSub">自來水 · 下水道 · 設計規範</p>
+        </div>
+      </div>
+      <a class="moj-link" id="headerMojLink" href="https://law.moj.gov.tw/" target="_blank" rel="noopener" aria-label="全國法規資料庫">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
+    </div>
+    <div class="header-rule"></div>
+  </header>
+
+  <main class="main" id="app"></main>
+
+  <footer class="site-footer">
+    <div class="footer-rule"></div>
+    <p class="footer-meta">系統更新：<span id="sysDate"></span>　更新人員：<span id="sysAuthor"></span></p>
+    <p class="footer-meta">法規修正日期：<span id="lawDate">—</span></p>
+    <p class="footer-note" id="footerNote">法條內容連結至 <a href="https://law.moj.gov.tw/" target="_blank" rel="noopener">全國法規資料庫</a>，以司法院最新公布為準。設計技術規範之表格與圖示以 PDF 擷圖嵌入。</p>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/plumbing-spec.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3D2B1F">
+  <title>PDF 原文</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #525659;
+      font-family: "DM Sans", system-ui, sans-serif;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.55rem 0.75rem;
+      background: #3D2B1F;
+      color: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .toolbar-back,
+    .toolbar-dl {
+      color: #ffb366;
+      text-decoration: none;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .toolbar-info {
+      flex: 1;
+      text-align: center;
+      font-size: 0.85rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .toolbar-btn {
+      background: rgba(255, 255, 255, 0.12);
+      border: 0;
+      color: #fff;
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.8rem;
+    }
+    .toolbar-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    #wrap {
+      overflow: auto;
+      height: calc(100dvh - 44px);
+      padding: 0.75rem 0.5rem 1.5rem;
+      text-align: center;
+    }
+    canvas,
+    .page-img {
+      display: block;
+      margin: 0 auto;
+      max-width: 100%;
+      height: auto;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.35);
+      background: #fff;
+    }
+    .status {
+      color: #ddd;
+      padding: 2rem 1rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <a class="toolbar-back" href="javascript:history.back()">← 返回</a>
+    <span class="toolbar-info" id="info">載入中…</span>
+    <a class="toolbar-dl" id="download" href="#" hidden>PDF</a>
+    <button type="button" class="toolbar-btn" id="prev" disabled>上一頁</button>
+    <button type="button" class="toolbar-btn" id="next" disabled>下一頁</button>
+  </div>
+  <div id="wrap"><p class="status" id="status">載入中…</p></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const params = new URLSearchParams(location.search);
+    let pageNum = Math.max(1, parseInt(params.get('page') || '1', 10));
+    const pdfFile = params.get('file') || 'assets/plumbing-spec.pdf';
+    const pageDir = params.get('pageDir') || 'assets/plumbing-spec/pages';
+    const totalPages = Math.max(1, parseInt(params.get('pages') || '117', 10));
+    const forcePng = params.get('mode') === 'png' || location.protocol === 'file:';
+
+    let viewerMode = forcePng ? 'png' : 'pdf';
+    let pdfDoc = null;
+
+    const wrap = document.getElementById('wrap');
+    const info = document.getElementById('info');
+    const statusEl = document.getElementById('status');
+    const prevBtn = document.getElementById('prev');
+    const nextBtn = document.getElementById('next');
+    const downloadLink = document.getElementById('download');
+
+    downloadLink.href = pdfFile;
+    downloadLink.removeAttribute('hidden');
+
+    function syncUrl() {
+      const q = new URLSearchParams({
+        file: pdfFile,
+        page: String(pageNum),
+        pages: String(totalPages),
+        pageDir,
+      });
+      if (viewerMode === 'png') q.set('mode', 'png');
+      history.replaceState(null, '', `?${q.toString()}`);
+    }
+
+    function updateNav() {
+      prevBtn.disabled = pageNum <= 1;
+      nextBtn.disabled = pageNum >= totalPages;
+      const modeNote = viewerMode === 'png' ? ' · 原頁截圖' : '';
+      info.textContent = `第 ${pageNum} / ${totalPages} 頁${modeNote}`;
+    }
+
+    function pageImageUrl(num) {
+      return `${pageDir}/page-${String(num).padStart(3, '0')}.png`;
+    }
+
+    function renderPng(num) {
+      pageNum = Math.min(Math.max(1, num), totalPages);
+      wrap.innerHTML = '';
+      const img = document.createElement('img');
+      img.className = 'page-img';
+      img.alt = `PDF 第 ${pageNum} 頁`;
+      img.src = pageImageUrl(pageNum);
+      img.onerror = () => {
+        statusEl.className = 'status';
+        statusEl.textContent =
+          `找不到第 ${pageNum} 頁截圖。\n請確認 ${pageImageUrl(pageNum)} 存在，或以 HTTP 伺服器開啟網站。`;
+        wrap.innerHTML = '';
+        wrap.appendChild(statusEl);
+      };
+      wrap.appendChild(img);
+      document.title = `PDF 第 ${pageNum} 頁`;
+      syncUrl();
+      updateNav();
+    }
+
+    async function renderPdf(num) {
+      pageNum = Math.min(Math.max(1, num), pdfDoc.numPages);
+      const page = await pdfDoc.getPage(pageNum);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.5, Math.max(0.5, (wrap.clientWidth - 16) / base.width));
+      const viewport = page.getViewport({ scale });
+      wrap.innerHTML = '';
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      wrap.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      document.title = `PDF 第 ${pageNum} 頁`;
+      syncUrl();
+      updateNav();
+    }
+
+    async function showPage(num) {
+      if (viewerMode === 'png') {
+        renderPng(num);
+        return;
+      }
+      await renderPdf(num);
+    }
+
+    async function initPdf() {
+      const loadingTask = pdfjsLib.getDocument({
+        url: pdfFile,
+        withCredentials: false,
+      });
+      pdfDoc = await loadingTask.promise;
+      viewerMode = 'pdf';
+      if (pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
+      statusEl.remove();
+      await showPage(pageNum);
+    }
+
+    async function init() {
+      prevBtn.addEventListener('click', () => showPage(pageNum - 1));
+      nextBtn.addEventListener('click', () => showPage(pageNum + 1));
+      window.addEventListener('resize', () => {
+        if (viewerMode === 'pdf' && pdfDoc) showPage(pageNum);
+      });
+
+      if (forcePng) {
+        viewerMode = 'png';
+        statusEl.remove();
+        renderPng(pageNum);
+        return;
+      }
+
+      try {
+        await initPdf();
+      } catch (err) {
+        viewerMode = 'png';
+        statusEl.remove();
+        renderPng(pageNum);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

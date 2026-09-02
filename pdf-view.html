@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#3D2B1F">
   <title>PDF 原文</title>
   <style>
@@ -74,20 +74,19 @@
       padding: 0.75rem 0.5rem 1.5rem;
       text-align: center;
       -webkit-overflow-scrolling: touch;
-      touch-action: pan-x pan-y pinch-zoom;
     }
     #viewport {
       display: inline-block;
+      vertical-align: top;
+    }
+    #viewport.is-preview {
+      transition: transform 0.05s linear;
       transform-origin: top center;
-      will-change: transform;
     }
     canvas,
     .page-img {
       display: block;
       margin: 0 auto;
-      width: auto;
-      height: auto;
-      max-width: none;
       box-shadow: 0 2px 16px rgba(0, 0, 0, 0.35);
       background: #fff;
     }
@@ -128,14 +127,19 @@
 
     let viewerMode = forcePng ? 'png' : 'pdf';
     let pdfDoc = null;
-    let zoom = 1;
-    let fitZoom = 1;
+    let zoomLevel = 1;
+    let fitScale = 1;
+    let renderJob = 0;
+    let renderTimer = null;
     let pinchStartDist = 0;
     let pinchStartZoom = 1;
+    let previewRatio = 1;
     let lastTap = 0;
+    let isPinching = false;
 
-    const MIN_ZOOM = 0.35;
+    const MIN_ZOOM = 0.5;
     const MAX_ZOOM = 4;
+    const MAX_RENDER_SCALE = 6;
 
     const wrap = document.getElementById('wrap');
     const viewport = document.getElementById('viewport');
@@ -156,33 +160,39 @@
       return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
     }
 
-    function pageContentWidth() {
-      const el = viewport.querySelector('.page-img, canvas');
-      if (!el) return wrap.clientWidth;
-      return el.naturalWidth || el.width || wrap.clientWidth;
+    function updateZoomLabel() {
+      zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
     }
 
-    function computeFitZoom() {
-      const contentW = pageContentWidth();
-      if (!contentW) return 1;
-      return clampZoom((wrap.clientWidth - 16) / contentW);
+    function clearPreview() {
+      previewRatio = 1;
+      viewport.classList.remove('is-preview');
+      viewport.style.transform = '';
     }
 
-    function applyZoom() {
-      zoom = clampZoom(zoom);
-      viewport.style.transform = `scale(${zoom})`;
-      zoomLabel.textContent = `${Math.round((zoom / fitZoom) * 100)}%`;
+    function setPreview(ratio) {
+      previewRatio = ratio;
+      viewport.classList.add('is-preview');
+      viewport.style.transform = `scale(${ratio})`;
+    }
+
+    function scheduleRender(delay) {
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => refreshView(), delay == null ? 80 : delay);
+    }
+
+    function setZoomLevel(level, delay) {
+      zoomLevel = clampZoom(level);
+      updateZoomLabel();
+      scheduleRender(delay);
     }
 
     function resetZoomFit() {
-      fitZoom = computeFitZoom();
-      zoom = fitZoom;
-      applyZoom();
+      setZoomLevel(1, 0);
     }
 
     function stepZoom(delta) {
-      zoom = clampZoom(zoom * (delta > 0 ? 1.2 : 1 / 1.2));
-      applyZoom();
+      setZoomLevel(zoomLevel * (delta > 0 ? 1.25 : 0.8));
     }
 
     function touchDistance(touches) {
@@ -194,25 +204,32 @@
     function bindZoomGestures() {
       viewport.addEventListener('touchstart', (e) => {
         if (e.touches.length === 2) {
+          isPinching = true;
           pinchStartDist = touchDistance(e.touches);
-          pinchStartZoom = zoom;
+          pinchStartZoom = zoomLevel;
         }
       }, { passive: true });
 
       viewport.addEventListener('touchmove', (e) => {
-        if (e.touches.length !== 2 || !pinchStartDist) return;
+        if (!isPinching || e.touches.length !== 2 || !pinchStartDist) return;
         e.preventDefault();
         const dist = touchDistance(e.touches);
-        zoom = clampZoom(pinchStartZoom * (dist / pinchStartDist));
-        applyZoom();
+        const next = clampZoom(pinchStartZoom * (dist / pinchStartDist));
+        setPreview(next / zoomLevel);
       }, { passive: false });
 
       viewport.addEventListener('touchend', (e) => {
-        if (e.touches.length < 2) pinchStartDist = 0;
+        if (e.touches.length < 2 && isPinching) {
+          isPinching = false;
+          pinchStartDist = 0;
+          if (previewRatio !== 1) {
+            setZoomLevel(zoomLevel * previewRatio, 0);
+            clearPreview();
+          }
+        }
         const now = Date.now();
-        if (e.changedTouches.length === 1 && now - lastTap < 300) {
-          zoom = Math.abs(zoom - fitZoom) < 0.05 ? clampZoom(fitZoom * 2) : fitZoom;
-          applyZoom();
+        if (e.changedTouches.length === 1 && now - lastTap < 300 && !isPinching) {
+          setZoomLevel(Math.abs(zoomLevel - 1) < 0.05 ? 2 : 1, 0);
         }
         lastTap = now;
       });
@@ -240,18 +257,19 @@
       return `${pageDir}/page-${String(num).padStart(3, '0')}.png`;
     }
 
-    function afterContentReady() {
-      resetZoomFit();
-    }
-
     function renderPng(num) {
       pageNum = Math.min(Math.max(1, num), totalPages);
+      clearPreview();
       viewport.innerHTML = '';
       const img = document.createElement('img');
       img.className = 'page-img';
       img.alt = `PDF 第 ${pageNum} 頁`;
       img.decoding = 'async';
-      img.onload = afterContentReady;
+      img.onload = () => {
+        fitScale = (wrap.clientWidth - 16) / img.naturalWidth;
+        img.style.width = `${img.naturalWidth * fitScale * zoomLevel}px`;
+        img.style.height = 'auto';
+      };
       img.onerror = () => {
         viewport.innerHTML = '';
         const err = document.createElement('p');
@@ -265,27 +283,65 @@
       document.title = `PDF 第 ${pageNum} 頁`;
       syncUrl();
       updateNav();
+      updateZoomLabel();
     }
 
     async function renderPdf(num) {
+      const job = ++renderJob;
       pageNum = Math.min(Math.max(1, num), pdfDoc.numPages);
+      clearPreview();
+
       const page = await pdfDoc.getPage(pageNum);
+      if (job !== renderJob) return;
+
       const base = page.getViewport({ scale: 1 });
-      const scale = Math.min(2.5, Math.max(0.5, (wrap.clientWidth - 16) / base.width));
-      const vp = page.getViewport({ scale });
-      viewport.innerHTML = '';
-      const canvas = document.createElement('canvas');
+      fitScale = (wrap.clientWidth - 16) / base.width;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const renderScale = Math.min(
+        fitScale * zoomLevel * dpr,
+        fitScale * MAX_ZOOM * dpr,
+        MAX_RENDER_SCALE
+      );
+      const vp = page.getViewport({ scale: renderScale });
+      const cssW = base.width * fitScale * zoomLevel;
+      const cssH = base.height * fitScale * zoomLevel;
+
+      let canvas = viewport.querySelector('canvas');
+      if (!canvas) {
+        viewport.innerHTML = '';
+        canvas = document.createElement('canvas');
+        viewport.appendChild(canvas);
+      }
+
       canvas.width = vp.width;
       canvas.height = vp.height;
-      viewport.appendChild(canvas);
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-      afterContentReady();
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+
+      await page.render({
+        canvasContext: canvas.getContext('2d'),
+        viewport: vp,
+      }).promise;
+
+      if (job !== renderJob) return;
+
       document.title = `PDF 第 ${pageNum} 頁`;
       syncUrl();
       updateNav();
+      updateZoomLabel();
+    }
+
+    async function refreshView() {
+      if (viewerMode === 'pdf' && pdfDoc) {
+        await renderPdf(pageNum);
+        return;
+      }
+      renderPng(pageNum);
     }
 
     async function showPage(num) {
+      zoomLevel = 1;
+      updateZoomLabel();
       if (viewerMode === 'png') {
         renderPng(num);
         return;
@@ -301,7 +357,7 @@
       pdfDoc = await loadingTask.promise;
       viewerMode = 'pdf';
       if (pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
-      statusEl.remove();
+      if (statusEl.parentNode) statusEl.remove();
       await showPage(pageNum);
     }
 
@@ -314,8 +370,8 @@
       bindZoomGestures();
 
       window.addEventListener('resize', () => {
-        if (viewport.querySelector('.page-img, canvas')) resetZoomFit();
-        if (viewerMode === 'pdf' && pdfDoc) showPage(pageNum);
+        if (viewerMode === 'pdf' && pdfDoc) scheduleRender(0);
+        else if (viewport.querySelector('.page-img')) scheduleRender(0);
       });
 
       if (forcePng) {

@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.text.Normalizer;
 import java.util.*;
 import java.util.regex.*;
 import javax.imageio.ImageIO;
@@ -11,8 +12,6 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.rendering.ImageType;
-import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
 
@@ -76,9 +75,14 @@ public class ExportPlumbingPages {
         }
     }
 
+    static String normalizeText(String s) {
+        if (s == null) return "";
+        return Normalizer.normalize(s, Normalizer.Form.NFKC);
+    }
+
     static String clean(String s) {
         if (s == null) return "";
-        return s.replaceAll("[\\s\\u00A0]+", " ").trim();
+        return normalizeText(s).replaceAll("[\\s\\u00A0]+", " ").trim();
     }
 
     static String shortLabel(String text) {
@@ -212,7 +216,7 @@ public class ExportPlumbingPages {
             paras.add(art.title);
         } else {
             for (String line : bodyLines) {
-                String t = line.trim();
+                String t = clean(line);
                 if (!t.isEmpty() && !isNumericGarbage(t)) paras.add(t);
             }
         }
@@ -224,7 +228,16 @@ public class ExportPlumbingPages {
         } else if (art.id.matches("A-[1-5]")) {
             art.label = art.title;
         } else {
-            art.label = shortLabel((art.title.isEmpty() ? body : art.title + " " + clean(body.replace("\n\n", " "))));
+            String flatBody = clean(body.replace("\n\n", " "));
+            String labelSource;
+            if (art.title.isEmpty()) {
+                labelSource = flatBody;
+            } else if (flatBody.startsWith(art.title) || flatBody.equals(art.title)) {
+                labelSource = art.title;
+            } else {
+                labelSource = art.title + " " + flatBody;
+            }
+            art.label = shortLabel(labelSource);
         }
         LinkedHashSet<Integer> pageSet = new LinkedHashSet<>();
         int lo = Math.min(startPage, Math.max(endPage, startPage));
@@ -405,10 +418,10 @@ public class ExportPlumbingPages {
         minX = Math.max(pageW * 0.03f, minX - margin);
         maxX = Math.min(pageW * 0.97f, maxX + margin);
 
-        int x = Math.max(0, (int) (minX * scale));
-        int y = Math.max(0, (int) ((pageH - regionTopPdf) * scale));
-        int w = Math.min((int) (pageW * scale) - x, (int) ((maxX - minX) * scale));
-        int h = Math.min((int) (pageH * scale) - y, (int) ((regionTopPdf - regionBottomPdf) * scale));
+        int x = Math.max(0, (int) Math.round(minX * scale));
+        int y = Math.max(0, (int) Math.round((pageH - regionTopPdf) * scale));
+        int w = Math.min((int) (pageW * scale) - x, (int) Math.round((maxX - minX) * scale));
+        int h = Math.min((int) (pageH * scale) - y, (int) Math.round((regionTopPdf - regionBottomPdf) * scale));
         if (w < 40 || h < 40) return null;
         return new Rectangle(x, y, w, h);
     }
@@ -488,15 +501,103 @@ public class ExportPlumbingPages {
         minX = Math.max(pageW * 0.03f, minX - margin);
         maxX = Math.min(pageW * 0.97f, maxX + margin);
 
-        int x = Math.max(0, (int) (minX * scale));
-        int y = Math.max(0, (int) ((pageH - regionTopPdf) * scale));
-        int w = Math.min((int) (pageW * scale) - x, (int) ((maxX - minX) * scale));
-        int h = Math.min((int) (pageH * scale) - y, (int) ((regionTopPdf - regionBottomPdf) * scale));
+        int x = Math.max(0, (int) Math.round(minX * scale));
+        int y = Math.max(0, (int) Math.round((pageH - regionTopPdf) * scale));
+        int w = Math.min((int) (pageW * scale) - x, (int) Math.round((maxX - minX) * scale));
+        int h = Math.min((int) (pageH * scale) - y, (int) Math.round((regionTopPdf - regionBottomPdf) * scale));
         if (w < 40 || h < 40) return null;
         return new Rectangle(x, y, w, h);
     }
 
-    static String cropMedia(PDFRenderer renderer, PDDocument doc, List<LineBox> allLines, Path cropsDir,
+    static BufferedImage copyImage(BufferedImage src) {
+        BufferedImage copy = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = copy.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+        return copy;
+    }
+
+    static void writePng(BufferedImage image, Path out) throws IOException {
+        ImageIO.write(image, "png", out.toFile());
+    }
+
+    static Path findPdftoppm() throws IOException {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (String dir : pathEnv.split(File.pathSeparator)) {
+                if (dir.isEmpty()) continue;
+                Path win = Paths.get(dir, "pdftoppm.exe");
+                if (Files.isRegularFile(win)) return win;
+                Path unix = Paths.get(dir, "pdftoppm");
+                if (Files.isRegularFile(unix)) return unix;
+            }
+        }
+        Path wingetRoot = Paths.get(System.getenv("LOCALAPPDATA") != null ? System.getenv("LOCALAPPDATA") : "",
+                "Microsoft", "WinGet", "Packages");
+        if (Files.isDirectory(wingetRoot)) {
+            try (var stream = Files.walk(wingetRoot, 5)) {
+                Optional<Path> found = stream
+                        .filter(p -> "pdftoppm.exe".equalsIgnoreCase(p.getFileName().toString()))
+                        .findFirst();
+                if (found.isPresent()) return found.get();
+            }
+        }
+        throw new IOException("pdftoppm not found. Install Poppler: winget install oschwartz10612.Poppler");
+    }
+
+    static void deleteTree(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                }
+            });
+        }
+    }
+
+    static BufferedImage renderPagePoppler(Path pdfFile, Path pdftoppm, Path tmpDir, int pageNum, int dpi)
+            throws IOException {
+        String id = "page-" + pageNum + "-" + dpi;
+        Path prefix = tmpDir.resolve(id);
+        ProcessBuilder pb = new ProcessBuilder(
+                pdftoppm.toString(),
+                "-f", String.valueOf(pageNum),
+                "-l", String.valueOf(pageNum),
+                "-png",
+                "-r", String.valueOf(dpi),
+                "-singlefile",
+                pdfFile.toAbsolutePath().toString(),
+                prefix.toString());
+        pb.redirectErrorStream(true);
+        Process proc;
+        try {
+            proc = pb.start();
+        } catch (IOException e) {
+            throw new IOException("Failed to run pdftoppm: " + pdftoppm, e);
+        }
+        String log;
+        try {
+            log = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int code = proc.waitFor();
+            if (code != 0) throw new IOException("pdftoppm page " + pageNum + " failed (" + code + "): " + log);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        }
+        Path png = tmpDir.resolve(id + ".png");
+        if (!Files.isRegularFile(png)) throw new IOException("pdftoppm output missing: " + png);
+        BufferedImage image = ImageIO.read(png.toFile());
+        Files.deleteIfExists(png);
+        if (image == null) throw new IOException("Failed to read poppler PNG: " + png);
+        return image;
+    }
+
+    static String cropMedia(Path pdfFile, Path pdftoppm, Path renderTmp, PDDocument doc, List<LineBox> allLines,
+                            Path cropsDir,
                             int dpi, MediaRef media, Map<String, PDPage> pageMap) throws IOException {
         LineBox caption = findCaptionLineAnyPage(allLines, media.page, media.caption, media.ref, pageMap);
         if (caption == null) return null;
@@ -513,7 +614,7 @@ public class ExportPlumbingPages {
         Rectangle rect = computeCropRect(page, pageLines, caption, media.type, media.ref, scale);
         if (rect == null) return null;
 
-        BufferedImage full = renderer.renderImageWithDPI(cropPage - 1, dpi, ImageType.RGB);
+        BufferedImage full = renderPagePoppler(pdfFile, pdftoppm, renderTmp, cropPage, dpi);
         rect.x = Math.max(0, Math.min(rect.x, full.getWidth() - 1));
         rect.y = Math.max(0, Math.min(rect.y, full.getHeight() - 1));
         rect.width = Math.min(rect.width, full.getWidth() - rect.x);
@@ -521,6 +622,7 @@ public class ExportPlumbingPages {
         if (rect.width < 30 || rect.height < 30) return null;
 
         BufferedImage crop = full.getSubimage(rect.x, rect.y, rect.width, rect.height);
+        crop = copyImage(crop);
 
         if ("table".equals(media.type)) {
             int nextPageNum = cropPage + 1;
@@ -532,14 +634,14 @@ public class ExportPlumbingPages {
                 for (LineBox lb : allLines) if (lb.page == nextPageNum) nextLines.add(lb);
                 Rectangle cont = computeContinuationCropRect(nextPage, nextLines, media.ref, scale);
                 if (cont != null) {
-                    BufferedImage nextFull = renderer.renderImageWithDPI(nextPageNum - 1, dpi, ImageType.RGB);
+                    BufferedImage nextFull = renderPagePoppler(pdfFile, pdftoppm, renderTmp, nextPageNum, dpi);
                     cont.x = Math.max(0, Math.min(cont.x, nextFull.getWidth() - 1));
                     cont.y = Math.max(0, Math.min(cont.y, nextFull.getHeight() - 1));
                     cont.width = Math.min(cont.width, nextFull.getWidth() - cont.x);
                     cont.height = Math.min(cont.height, nextFull.getHeight() - cont.y);
                     if (cont.width >= 30 && cont.height >= 30) {
                         BufferedImage contCrop = nextFull.getSubimage(cont.x, cont.y, cont.width, cont.height);
-                        crop = stitchVertical(crop, contCrop);
+                        crop = stitchVertical(crop, copyImage(contCrop));
                     }
                 }
             }
@@ -547,7 +649,7 @@ public class ExportPlumbingPages {
 
         String fileName = (media.type.equals("figure") ? "fig-" : "tab-") + media.ref.replace('.', '-').replace('/', '-') + ".png";
         Path out = cropsDir.resolve(fileName);
-        ImageIO.write(crop, "png", out.toFile());
+        writePng(crop, out);
         return "assets/plumbing-spec/crops/" + fileName;
     }
 
@@ -622,7 +724,11 @@ public class ExportPlumbingPages {
         Path cropsDir = root.resolve("assets/plumbing-spec/crops");
         Path textFile = root.resolve("scripts/plumbing-spec-text.txt");
         Path outFile = root.resolve("js/plumbing-spec.js");
-        int dpi = 144;
+        int pageDpi = 144;
+        int cropDpi = 216;
+        Path pdftoppm = findPdftoppm();
+        Path renderTmp = Files.createTempDirectory("plumb-render-");
+        System.out.println("Image renderer: poppler " + pdftoppm);
 
         Files.createDirectories(pagesDir);
         Files.createDirectories(cropsDir);
@@ -630,10 +736,8 @@ public class ExportPlumbingPages {
         List<Integer> pdfPageTimeline = new ArrayList<>();
         List<LineBox> allLines = new ArrayList<>();
         Map<String, PDPage> pageMap = new HashMap<>();
-        PDFRenderer renderer;
 
         try (PDDocument doc = Loader.loadPDF(pdfFile.toFile())) {
-            renderer = new PDFRenderer(doc);
             PageLinesStripper stripper = new PageLinesStripper();
             int total = doc.getNumberOfPages();
             System.out.println("PDF pages: " + total);
@@ -652,10 +756,8 @@ public class ExportPlumbingPages {
                 stripper.lines.clear();
 
                 Path out = pagesDir.resolve(String.format("page-%03d.png", pageNum));
-                if (!Files.exists(out)) {
-                    BufferedImage image = renderer.renderImageWithDPI(i, dpi, ImageType.RGB);
-                    ImageIO.write(image, "png", out.toFile());
-                }
+                BufferedImage image = renderPagePoppler(pdfFile, pdftoppm, renderTmp, pageNum, pageDpi);
+                writePng(image, out);
             }
 
             List<String> lines = Files.readAllLines(textFile, StandardCharsets.UTF_8);
@@ -829,7 +931,7 @@ public class ExportPlumbingPages {
             for (Chapter ch : chapters) {
                 for (Article a : ch.articles) {
                     for (MediaRef m : a.media) {
-                        m.crop = cropMedia(renderer, doc, allLines, cropsDir, dpi, m, pageMap);
+                        m.crop = cropMedia(pdfFile, pdftoppm, renderTmp, doc, allLines, cropsDir, cropDpi, m, pageMap);
                         if (m.crop != null) cropCount++;
                     }
                 }
@@ -895,6 +997,8 @@ public class ExportPlumbingPages {
             int totalArts = chapters.stream().mapToInt(c -> c.articles.size()).sum();
             System.out.println("Chapters: " + chapters.size() + ", Articles: " + totalArts);
             System.out.println("Output: " + outFile);
+        } finally {
+            deleteTree(renderTmp);
         }
     }
 }

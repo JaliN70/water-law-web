@@ -33,6 +33,22 @@
     'A-5': '工廠製造的油脂截留器之選用計算',
   };
 
+  function normalizeText(s) {
+    return String(s ?? '').normalize('NFKC');
+  }
+
+  if (typeof PLUMBING_SPEC_LAW !== 'undefined') {
+    for (const cat of PLUMBING_SPEC_LAW.categories || []) {
+      for (const item of cat.articles || []) {
+        if (item.label) item.label = normalizeText(item.label);
+        if (item.body) item.body = normalizeText(item.body);
+        for (const m of item.media || []) {
+          if (m.caption) m.caption = normalizeText(m.caption);
+        }
+      }
+    }
+  }
+
   function appendixSectionTitle(item) {
     if (/^A-[1-5]$/.test(item.art)) return APPENDIX_SECTIONS[item.art] || item.art;
     return null;
@@ -61,8 +77,7 @@
   function articleListHint(item, cat) {
     if (!cat || cat.id !== 'PLUMB-appendix') return '';
     if (/^A-[1-5]$/.test(item.art)) return '計算章節';
-    if (/^表-/.test(item.art)) return '附表';
-    if (/^圖-/.test(item.art)) return '附圖';
+    if (/^表-|^圖-/.test(item.art)) return '詳內文連結';
     return '';
   }
 
@@ -109,7 +124,7 @@
   }
 
   function escapeHtml(s) {
-    return String(s)
+    return normalizeText(s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -120,33 +135,24 @@
     return escapeHtml(text).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
   }
 
-  function pageImageUrl(law, page) {
-    const dir = law.pageDir || 'assets/plumbing-spec/pages';
-    return `${dir}/page-${String(page).padStart(3, '0')}.png`;
-  }
-
-  function mediaImageUrl(law, media) {
-    if (media.crop) return media.crop;
-    return pageImageUrl(law, media.page);
-  }
-
   function renderMediaBlock(law, media) {
     const kind = media.type === 'table' ? '表格' : '圖';
-    const imgClass = media.crop ? 'spec-media-img spec-media-img--crop' : 'spec-media-img';
+    const page = media.page || 2;
+    const href = pdfUrl(law, page);
     return `
-      <figure class="spec-media spec-media--${escapeHtml(media.type)}" id="media-${escapeHtml(media.ref)}">
-        <figcaption>
-          <span class="spec-media-tag">${kind}</span>
-          ${escapeHtml(media.caption)}
-        </figcaption>
-        <img
-          class="${imgClass}"
-          src="${escapeHtml(mediaImageUrl(law, media))}"
-          alt="${escapeHtml(media.caption)}"
-          loading="lazy"
-          decoding="async"
-        >
-      </figure>`;
+      <a class="spec-media-link spec-media-link--${escapeHtml(media.type)}"
+         href="${escapeHtml(href)}" target="_blank" rel="noopener"
+         id="media-${escapeHtml(media.ref)}">
+        <span class="spec-media-tag">${kind}</span>
+        <span class="spec-media-caption">${escapeHtml(media.caption)}</span>
+        <span class="spec-media-action">詳內文連結
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </span>
+      </a>`;
   }
 
   function isTableOcrParagraph(text, media) {
@@ -387,26 +393,25 @@
           const listLabel = articleListLabel(item, cat);
           const listHint = articleListHint(item, cat);
           const btnClass = articleBtnClass(item, cat);
+          const isMediaGuide = local && /^表-|^圖-/.test(item.art);
+          const mediaPage = isMediaGuide ? primaryPdfPage(item) : 0;
+          const inner = `
+                <span class="art-num">${escapeHtml(articleListNum(item.art, item, cat))}</span>
+                <span class="art-label">${escapeHtml(listLabel)}${listHint ? `<span class="art-note${listHint === '詳內文連結' ? ' art-note--link' : ''}">${escapeHtml(listHint)}</span>` : ''}</span>
+                <svg class="art-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  ${isMediaGuide
+                    ? '<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
+                    : '<polyline points="9 18 15 12 9 6"/>'}
+                </svg>`;
           return `
         <li class="fade-up" style="animation-delay:${Math.min(i, 12) * 0.02}s">
           ${local
-            ? `<button type="button" class="${btnClass}" data-art="${escapeHtml(item.art)}" aria-label="${escapeHtml(articleDisplayTitle(item.art, law, item, cat))}">
-                <span class="art-num">${escapeHtml(articleListNum(item.art, item, cat))}</span>
-                <span class="art-label">${escapeHtml(listLabel)}${listHint ? `<span class="art-note">${escapeHtml(listHint)}</span>` : ''}</span>
-                <svg class="art-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
-              </button>`
+            ? isMediaGuide
+              ? `<a class="${btnClass}" href="${escapeHtml(pdfUrl(law, mediaPage))}" target="_blank" rel="noopener"
+                   data-art="${escapeHtml(item.art)}" aria-label="${escapeHtml(listLabel)} · 詳內文連結">${inner}</a>`
+              : `<button type="button" class="${btnClass}" data-art="${escapeHtml(item.art)}" aria-label="${escapeHtml(articleDisplayTitle(item.art, law, item, cat))}">${inner}</button>`
             : `<a class="art-btn" href="${mojArticleUrl(law.pcode, item.art)}" target="_blank" rel="noopener"
-                 data-art="${escapeHtml(item.art)}">
-                <span class="art-num">${escapeHtml(formatArticleNum(item.art))}</span>
-                <span class="art-label">${escapeHtml(item.label)}</span>
-                <svg class="art-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-                  <polyline points="15 3 21 3 21 9"/>
-                  <line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-              </a>`}
+                 data-art="${escapeHtml(item.art)}">${inner}</a>`}
         </li>
       `;
         }

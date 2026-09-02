@@ -19,8 +19,9 @@
   --header-h: 4.5rem;
   --radius: 2px;
   --radius-lg: 4px;
-  --font-display: 'Cormorant Garamond', 'Georgia', serif;
-  --font-body: 'DM Sans', 'Segoe UI', sans-serif;
+  --font-display: 'Cormorant Garamond', 'Noto Serif TC', 'PMingLiU', 'Georgia', serif;
+  --font-body: 'DM Sans', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  --font-cjk: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -465,6 +466,7 @@ body {
 .art-label {
   flex: 1;
   min-width: 0;
+  font-family: var(--font-cjk);
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--brown-deep);
@@ -520,6 +522,7 @@ button.art-btn {
 }
 
 .art-detail-body {
+  font-family: var(--font-cjk);
   font-size: 0.92rem;
   line-height: 1.75;
   color: var(--ink-soft);
@@ -535,22 +538,50 @@ button.art-btn {
   margin-bottom: 0;
 }
 
-.spec-media {
-  margin: 1.25rem 0 1.5rem;
-  padding: 0;
+.spec-media-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
   border: 1px solid rgba(61, 43, 31, 0.12);
   border-radius: 0.65rem;
-  overflow: hidden;
   background: rgba(255, 252, 247, 0.72);
-  box-shadow: 0 8px 24px rgba(61, 43, 31, 0.06);
+  box-shadow: 0 4px 16px rgba(61, 43, 31, 0.05);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.spec-media figcaption {
-  padding: 0.75rem 0.9rem 0.65rem;
-  font-size: 0.78rem;
-  color: var(--brown-soft);
-  border-bottom: 1px solid rgba(61, 43, 31, 0.08);
-  line-height: 1.5;
+.spec-media-link:active {
+  border-color: var(--hermes-orange);
+  box-shadow: 0 6px 20px rgba(230, 90, 0, 0.1);
+}
+
+.spec-media-caption {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-cjk);
+  font-size: 0.82rem;
+  color: var(--brown-deep);
+  line-height: 1.45;
+}
+
+.spec-media-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  font-family: var(--font-cjk);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--hermes-orange-dark);
+  white-space: nowrap;
+}
+
+.spec-media-link--table .spec-media-tag {
+  background: rgba(61, 43, 31, 0.1);
 }
 
 .spec-media-tag {
@@ -565,21 +596,8 @@ button.art-btn {
   background: rgba(184, 134, 11, 0.14);
 }
 
-.spec-media--table .spec-media-tag {
-  background: rgba(61, 43, 31, 0.1);
-}
-
-.spec-media-img {
-  display: block;
-  width: 100%;
-  height: auto;
-  background: #fff;
-}
-
-.spec-media-img--crop {
-  width: auto;
-  max-width: 100%;
-  margin: 0 auto;
+.art-note--link {
+  color: var(--hermes-orange-dark);
 }
 
 .art-detail-pdf {

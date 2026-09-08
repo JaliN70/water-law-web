@@ -200,4 +200,4 @@ const LAWS = [
   PLUMBING_SPEC_LAW,
 ];
 
-const META = { updated: '2026/09/02', author: 'AJ' };
+const META = { updated: '2026/09/15', author: 'AJ' };
